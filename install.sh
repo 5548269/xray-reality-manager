@@ -12,7 +12,7 @@ cyan='\e[96m'
 none='\e[0m'
 
 # 脚本版本
-VERSION="2.0.12"
+VERSION="2.0.13"
 
 # 配置文件路径
 CONFIG_FILE="/usr/local/etc/xray/config.json"
@@ -292,7 +292,7 @@ update_geodata() {
 
 # 检查是否安装了必要的依赖
 check_dependencies() {
-    local dependencies=("curl" "jq" "qrencode" "lsof" "wget" "systemctl" "haproxy")
+    local dependencies=("curl" "jq" "lsof" "wget" "systemctl" "haproxy")
     local missing=()
 
     for dep in "${dependencies[@]}"; do
@@ -1392,22 +1392,25 @@ configure_socks5_for_port() {
         break
     done
     
-# 是否需要认证
-echo -e "是否需要用户名密码认证?"
-read -p "$(echo -e "(y/n, 默认: ${cyan}y${none}): ")" auth_needed
-[ -z "$auth_needed" ] && auth_needed="y"
+    # 是否需要认证
+    echo -e "是否需要用户名密码认证?"
+    read -r -p "$(echo -e "(y/n, 默认: ${cyan}y${none}): ")" auth_needed
+    [ -z "$auth_needed" ] && auth_needed="y"
 
-socks5_user=""
-socks5_pass=""
-if [[ $auth_needed = "y" ]]; then
-    read -p "$(echo -e "请输入用户名 (默认: ${cyan}izdvrqng${none}): ")" socks5_user
-    [ -z "$socks5_user" ] && socks5_user="izdvrqng"
+    local socks5_user=""
+    local socks5_pass=""
+    if [[ $auth_needed = "y" ]]; then
+        while [[ -z "$socks5_user" ]]; do
+            read -r -p "$(echo -e "请输入 SOCKS5 用户名: ")" socks5_user
+            [[ -z "$socks5_user" ]] && echo -e "${red}用户名不能为空${none}"
+        done
 
-    read -p "$(echo -e "请输入密码 (默认: ${cyan}x9oxua2q3006${none}): ")" socks5_pass
-    [ -z "$socks5_pass" ] && socks5_pass="x9oxua2q3006"
-
-    echo  # 为了换行
-fi
+        while [[ -z "$socks5_pass" ]]; do
+            read -r -s -p "$(echo -e "请输入 SOCKS5 密码（输入时不会显示）: ")" socks5_pass
+            echo
+            [[ -z "$socks5_pass" ]] && echo -e "${red}密码不能为空${none}"
+        done
+    fi
     
     # 是否启用 UDP over TCP
     echo -e "是否启用 UDP over TCP?"
@@ -2664,7 +2667,7 @@ show_help() {
     echo -e "  ${green}3.${none} 查看所有端口配置: 显示当前配置的所有端口信息。"
     echo -e "  ${green}4.${none} 修改端口配置: 修改现有端口的 UUID、域名、ShortID 或 SOCKS5 代理设置。"
     echo -e "  ${green}5.${none} 删除端口配置: 删除指定端口的配置。"
-    echo -e "  ${green}6.${none} 显示所有端口连接信息: 生成并显示所有端口的详细连接信息，包括二维码。"
+    echo -e "  ${green}6.${none} 显示所有端口连接信息: 生成并显示所有端口的详细连接信息。"
     echo -e "  ${green}7.${none} 更新 GeoIP 和 GeoSite 数据: 手动更新 Xray 的 GeoIP 和 GeoSite 数据库。"
     echo -e "  ${green}8.${none} 流量统计: 显示各端口的流量使用情况（需配置 Xray API）。"
     echo -e "  ${green}9.${none} 设置定时更新: 配置定时任务自动更新 GeoIP 和 GeoSite 数据。"
@@ -2898,19 +2901,20 @@ generate_haproxy_config_direct() {
                         # 如果用户名或密码是占位符，提示用户输入
                         if [[ "$socks5_user" == "1" || -z "$socks5_user" || "$socks5_pass" == "1" || -z "$socks5_pass" ]]; then
                             echo -e "${yellow}检测到端口 $port 的SOCKS5认证信息不完整${none}"
-                            echo -e "请输入SOCKS5用户名:"
-                            read -p "$(echo -e "> ")" new_socks5_user
-                            echo -e "请输入SOCKS5密码:"
-                            read -p "$(echo -e "> ")" new_socks5_pass
-                            
-                            if [[ -n "$new_socks5_user" && -n "$new_socks5_pass" ]]; then
-                                socks5_user="$new_socks5_user"
-                                socks5_pass="$new_socks5_pass"
-                            else
-                                echo -e "${yellow}未提供认证信息，使用默认值${none}"
-                                socks5_user="user"
-                                socks5_pass="password"
-                            fi
+                            while [[ -z "$socks5_user" || "$socks5_user" == "1" || -z "$socks5_pass" || "$socks5_pass" == "1" ]]; do
+                                echo -e "请输入 SOCKS5 用户名:"
+                                read -r -p "$(echo -e "> ")" new_socks5_user
+                                echo -e "请输入 SOCKS5 密码（输入时不会显示）:"
+                                read -r -s -p "$(echo -e "> ")" new_socks5_pass
+                                echo
+
+                                if [[ -n "$new_socks5_user" && -n "$new_socks5_pass" ]]; then
+                                    socks5_user="$new_socks5_user"
+                                    socks5_pass="$new_socks5_pass"
+                                else
+                                    echo -e "${red}用户名和密码均不能为空，请重新输入${none}"
+                                fi
+                            done
                         fi
                     fi
                     
@@ -3073,7 +3077,7 @@ install_xray() {
     # 安装依赖
     echo -e "${yellow}安装依赖...${none}"
     apt update
-    apt install -y curl sudo jq qrencode net-tools lsof wget haproxy
+    apt install -y curl sudo jq net-tools lsof wget haproxy
 
     # 确保HAProxy服务启用
     systemctl enable haproxy
