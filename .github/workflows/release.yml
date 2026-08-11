@@ -1,0 +1,60 @@
+name: Publish release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify tag and scripts
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          script_version=$(awk -F'"' '/^VERSION=/{print $2; exit}' install.sh)
+          test "v${script_version}" = "$RELEASE_TAG"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          grep -q "v${script_version}" README.md
+          grep -q "v${script_version}" README_zh-CN.md
+          grep -Fq "## [${script_version}]" CHANGELOG.md
+          bash -n install.sh
+          bash -n install-release.sh
+          bash -n tests/security_helpers_test.sh
+          shellcheck --severity=error install.sh tests/security_helpers_test.sh
+          bash tests/security_helpers_test.sh
+
+      - name: Build release assets
+        run: |
+          mkdir dist
+          cp install.sh install-release.sh dist/
+          cd dist
+          sha256sum install.sh install-release.sh > SHA256SUMS
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --verify-tag \
+              --generate-notes \
+              --title "$RELEASE_TAG"
+          fi
+          gh release upload "$RELEASE_TAG" \
+            dist/install.sh \
+            dist/install-release.sh \
+            dist/SHA256SUMS \
+            --clobber

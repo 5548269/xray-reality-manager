@@ -6,23 +6,24 @@ This roadmap describes intended work, not guaranteed delivery dates. Priorities 
 
 ## Near term / 近期计划
 
-- Add automated Bash syntax and ShellCheck validation.
-- Test installation and core menu flows on supported Debian and Ubuntu versions.
-- Document the provenance and update process for `install-release.sh`.
-- Improve input validation and error messages.
-- 增加 Bash 语法与 ShellCheck 自动检查。
-- 在支持的 Debian、Ubuntu 版本上测试安装及核心菜单流程。
-- 记录 `install-release.sh` 的来源和同步流程。
-- 改进输入校验及错误提示。
+- Test installation and core menu flows on supported Debian and Ubuntu versions ([#1](https://github.com/5548269/xray-reality-manager/issues/1)).
+- Add a non-destructive configuration validation mode ([#3](https://github.com/5548269/xray-reality-manager/issues/3)).
+- Expand backup integrity checks and recovery documentation ([#4](https://github.com/5548269/xray-reality-manager/issues/4)).
+- 在支持的 Debian、Ubuntu 版本上测试安装及核心菜单流程（[#1](https://github.com/5548269/xray-reality-manager/issues/1)）。
+- 增加无破坏性的配置校验模式（[#3](https://github.com/5548269/xray-reality-manager/issues/3)）。
+- 完善备份完整性检查及恢复文档（[#4](https://github.com/5548269/xray-reality-manager/issues/4)）。
 
 ## Later / 后续计划
 
-- Add a non-destructive dry-run or configuration validation mode.
-- Expand backup integrity checks and recovery documentation.
 - Add more focused tests for VLESS, Reality, SOCKS5, and HAProxy configuration generation.
-- 增加无破坏性的预演或配置校验模式。
-- 完善备份完整性检查及恢复文档。
 - 为 VLESS、Reality、SOCKS5 和 HAProxy 配置生成增加专项测试。
+
+## Completed / 已完成
+
+- Automated Bash syntax, ShellCheck, and security regression validation.
+- Verified upstream provenance and documented the `install-release.sh` synchronization process ([#2](https://github.com/5548269/xray-reality-manager/issues/2)).
+- Bash 语法、ShellCheck 与安全回归自动检查。
+- 验证上游来源并记录 `install-release.sh` 同步流程（[#2](https://github.com/5548269/xray-reality-manager/issues/2)）。
 
 Progress should be tracked through public Issues and linked Pull Requests so that completed work remains verifiable.
 
