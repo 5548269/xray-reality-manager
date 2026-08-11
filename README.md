@@ -9,7 +9,7 @@
 An interactive Bash manager for Xray VLESS + Reality deployments. It turns
 multi-port, multi-user, SOCKS5 relay, HAProxy, backup, and recovery tasks into
 a guided workflow for Linux server administrators. The current stable release
-is **v2.0.14**.
+is **v2.0.15**.
 
 ## Why this project
 
@@ -59,7 +59,7 @@ whenever possible.
 Download the release script and its published checksum:
 
 ```bash
-VERSION=v2.0.14
+VERSION=v2.0.15
 curl -fLO "https://github.com/5548269/xray-reality-manager/releases/download/${VERSION}/install.sh"
 curl -fLO "https://github.com/5548269/xray-reality-manager/releases/download/${VERSION}/SHA256SUMS"
 grep '  install.sh$' SHA256SUMS | sha256sum -c -

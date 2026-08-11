@@ -14,7 +14,7 @@ show_banner() {
 }
 
 # 脚本版本
-VERSION="2.0.14"
+VERSION="2.0.15"
 
 # 固定安装辅助脚本的来源和校验值，避免以 root 身份执行可变 main 分支内容
 INSTALL_RELEASE_REF="e741a4f56d368afbb9e5be3361b40c4552d3710d"
@@ -101,7 +101,7 @@ parse_x25519_private_key() {
     awk -F':[[:space:]]*' '
         {
             label=tolower($1)
-            gsub(/[[:space:]_-]/, "", label)
+            gsub(/[^[:alnum:]]/, "", label)
             if (label == "privatekey") {
                 print $2
                 exit
@@ -114,8 +114,8 @@ parse_x25519_public_key() {
     awk -F':[[:space:]]*' '
         {
             label=tolower($1)
-            gsub(/[[:space:]_-]/, "", label)
-            if (label == "password" || label == "publickey") {
+            gsub(/[^[:alnum:]]/, "", label)
+            if (label == "password" || label == "publickey" || label == "passwordpublickey") {
                 print $2
                 exit
             }
