@@ -14,7 +14,7 @@ show_banner() {
 }
 
 # 脚本版本
-VERSION="2.0.15"
+VERSION="2.0.16"
 
 # 固定安装辅助脚本的来源和校验值，避免以 root 身份执行可变 main 分支内容
 INSTALL_RELEASE_REF="e741a4f56d368afbb9e5be3361b40c4552d3710d"
@@ -173,6 +173,53 @@ secure_xray_config_permissions() {
     chmod 600 "$CONFIG_FILE"
     log_warn "无法识别 Xray 服务账户，config.json 已限制为 root 专用"
     return 1
+}
+
+# 全新安装时先提供不含密钥和监听端口的有效配置，避免上游安装器首次启动服务时报缺少文件
+prepare_xray_bootstrap_config() {
+    local temp_config
+
+    [[ -f "$CONFIG_FILE" ]] && return 0
+
+    mkdir -p -- "$CONFIG_DIR" || return 1
+    temp_config=$(mktemp "${CONFIG_DIR}/.config.json.XXXXXX") || return 1
+
+    if ! cat > "$temp_config" <<'EOF'
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "settings": {},
+      "tag": "direct"
+    }
+  ]
+}
+EOF
+    then
+        rm -f -- "$temp_config"
+        return 1
+    fi
+
+    # 该占位配置不含秘密；上游服务以 nobody 启动，安装完成后会立即收紧权限
+    if ! chmod 644 "$temp_config"; then
+        rm -f -- "$temp_config"
+        return 1
+    fi
+
+    # 用硬链接无覆盖地发布文件；若并发流程已创建正式配置，则保留正式配置
+    if ! ln -- "$temp_config" "$CONFIG_FILE" 2>/dev/null; then
+        rm -f -- "$temp_config"
+        [[ -f "$CONFIG_FILE" ]] && return 0
+        return 1
+    fi
+
+    rm -f -- "$temp_config"
+
+    return 0
 }
 
 # 下载固定版本的安装辅助脚本，校验无误后才执行
@@ -3523,6 +3570,12 @@ install_xray() {
     echo
     echo -e "${yellow}Xray官方脚本安装最新版本$none"
     echo "----------------------------------------------------------------"
+    if ! prepare_xray_bootstrap_config; then
+        echo -e "${red}无法创建 Xray 初始配置，安装已停止${none}"
+        log_error "创建 Xray 初始配置失败"
+        return 1
+    fi
+
     if ! run_install_release install; then
         echo -e "${red}Xray 安装脚本执行失败，请检查网络连接和日志${none}"
         log_error "Xray 安装辅助脚本执行失败"
@@ -3533,6 +3586,12 @@ install_xray() {
     if ! command -v xray &> /dev/null; then
         echo -e "${red}Xray 安装失败，请检查网络连接或手动安装${none}"
         log_error "Xray 安装失败"
+        return 1
+    fi
+
+    if ! secure_xray_config_permissions; then
+        echo -e "${red}Xray 初始配置权限设置失败，安装已停止${none}"
+        log_error "Xray 初始配置权限设置失败"
         return 1
     fi
 

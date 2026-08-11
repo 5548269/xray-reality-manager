@@ -13,7 +13,7 @@ body:
     attributes:
       label: Script version
       description: Copy the version shown at the top of the script menu.
-      placeholder: "For example: 2.0.15"
+      placeholder: "For example: 2.0.16"
     validations:
       required: true
   - type: input

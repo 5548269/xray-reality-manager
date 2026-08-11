@@ -50,6 +50,19 @@ latest_public=$(printf '%s\n' "$latest_x25519_output" | parse_x25519_public_key)
 temp_dir=$(mktemp -d)
 trap 'rm -rf -- "$temp_dir"' EXIT
 
+CONFIG_DIR="$temp_dir/bootstrap"
+CONFIG_FILE="$CONFIG_DIR/config.json"
+prepare_xray_bootstrap_config || fail "bootstrap Xray config could not be created"
+if ! grep -Fq '"inbounds": []' "$CONFIG_FILE" ||
+   ! grep -Fq '"protocol": "freedom"' "$CONFIG_FILE"; then
+    fail "bootstrap Xray config has unexpected content"
+fi
+
+printf '%s\n' '{"existing":true}' > "$CONFIG_FILE"
+prepare_xray_bootstrap_config || fail "existing Xray config was rejected"
+grep -Fq '"existing":true' "$CONFIG_FILE" ||
+    fail "existing Xray config was overwritten by bootstrap preparation"
+
 mkdir -p "$temp_dir/good"
 printf '{"ports":[]}\n' > "$temp_dir/good/.xray_port_info.json"
 tar -czf "$temp_dir/good.tar.gz" -C "$temp_dir" good

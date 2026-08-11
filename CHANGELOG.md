@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+## [2.0.16] - 2026-08-11
+
+### Added
+
+- 记录 Ubuntu 22.04.5 LTS ARM64、Xray 26.3.27 的真实安装、端口创建、服务校验和客户端导入结果。
+
+### Fixed
+
+- 全新安装时先创建不含密钥和监听端口的有效初始配置，避免上游安装器在正式端口配置生成前因缺少 `config.json` 连续启动失败。
+
 ## [2.0.15] - 2026-08-11
 
 ### Fixed
@@ -65,7 +75,8 @@
 - 支持直连与 SOCKS5 中转模式。
 - 支持 HAProxy 配置生成、连接信息展示、备份恢复及 Geo 数据更新。
 
-[Unreleased]: https://github.com/5548269/xray-reality-manager/compare/v2.0.15...HEAD
+[Unreleased]: https://github.com/5548269/xray-reality-manager/compare/v2.0.16...HEAD
+[2.0.16]: https://github.com/5548269/xray-reality-manager/compare/v2.0.15...v2.0.16
 [2.0.15]: https://github.com/5548269/xray-reality-manager/compare/v2.0.14...v2.0.15
 [2.0.14]: https://github.com/5548269/xray-reality-manager/compare/v2.0.13...v2.0.14
 [2.0.13]: https://github.com/5548269/xray-reality-manager/releases/tag/v2.0.13
