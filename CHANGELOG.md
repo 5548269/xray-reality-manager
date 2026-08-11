@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.0.15] - 2026-08-11
+
+### Fixed
+
+- 兼容 Xray `v26.3.27` 将 Reality 公钥标签输出为 `Password (PublicKey)` 的格式，修复添加端口时自动生成密钥失败并退出的问题。
+
 ## [2.0.14] - 2026-08-11
 
 ### Added
@@ -59,6 +65,7 @@
 - 支持直连与 SOCKS5 中转模式。
 - 支持 HAProxy 配置生成、连接信息展示、备份恢复及 Geo 数据更新。
 
-[Unreleased]: https://github.com/5548269/xray-reality-manager/compare/v2.0.14...HEAD
+[Unreleased]: https://github.com/5548269/xray-reality-manager/compare/v2.0.15...HEAD
+[2.0.15]: https://github.com/5548269/xray-reality-manager/compare/v2.0.14...v2.0.15
 [2.0.14]: https://github.com/5548269/xray-reality-manager/compare/v2.0.13...v2.0.14
 [2.0.13]: https://github.com/5548269/xray-reality-manager/releases/tag/v2.0.13

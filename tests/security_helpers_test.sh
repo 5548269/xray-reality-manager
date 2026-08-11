@@ -27,18 +27,25 @@ fi
 
 old_x25519_output=$'Private key: old-private\nPublic key: old-public'
 new_x25519_output=$'PrivateKey: new-private\nPassword: new-public\nHash32: not-a-public-key'
+latest_x25519_output=$'PrivateKey: latest-private\nPassword (PublicKey): latest-public\nHash32: not-a-public-key'
 
 old_private=$(printf '%s\n' "$old_x25519_output" | parse_x25519_private_key)
 old_public=$(printf '%s\n' "$old_x25519_output" | parse_x25519_public_key)
 new_private=$(printf '%s\n' "$new_x25519_output" | parse_x25519_private_key)
 new_public=$(printf '%s\n' "$new_x25519_output" | parse_x25519_public_key)
+latest_private=$(printf '%s\n' "$latest_x25519_output" | parse_x25519_private_key)
+latest_public=$(printf '%s\n' "$latest_x25519_output" | parse_x25519_public_key)
 
 [[ "$old_private" == "old-private" && "$old_public" == "old-public" ]] ||
     fail "legacy Xray x25519 output was parsed incorrectly"
 [[ "$new_private" == "new-private" && "$new_public" == "new-public" ]] ||
     fail "current Xray x25519 output was parsed incorrectly"
+[[ "$latest_private" == "latest-private" && "$latest_public" == "latest-public" ]] ||
+    fail "Xray 26.3.27 x25519 output was parsed incorrectly"
 [[ "$new_public" != "not-a-public-key" ]] ||
     fail "Hash32 was incorrectly accepted as a public key"
+[[ "$latest_public" != "not-a-public-key" ]] ||
+    fail "Hash32 was incorrectly accepted from Xray 26.3.27 output"
 
 temp_dir=$(mktemp -d)
 trap 'rm -rf -- "$temp_dir"' EXIT
