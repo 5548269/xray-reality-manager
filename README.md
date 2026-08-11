@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README_zh-CN.md)
 
-An interactive Xray management script for VLESS + Reality. It simplifies multi-port and multi-user configurations, direct connections, and SOCKS5 relay setups. The current script version is **2.0.12**.
+An interactive Xray management script for VLESS + Reality. It simplifies multi-port and multi-user configurations, direct connections, and SOCKS5 relay setups. The current script version is **2.0.13**.
 
 ## Features
 
@@ -62,6 +62,8 @@ This project continues the maintenance of a community script and fixes a Reality
 ## Contributing
 
 Read the [contribution guide](CONTRIBUTING.md) before opening an issue or submitting code. See [CHANGELOG.md](CHANGELOG.md) for notable changes.
+
+Planned improvements are tracked in the public [roadmap](ROADMAP.md).
 
 ## Disclaimer
 

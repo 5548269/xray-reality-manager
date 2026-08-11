@@ -2,7 +2,7 @@
 
 [English](README.md) | **简体中文**
 
-一个面向 VLESS + Reality 的交互式 Xray 管理脚本，用于简化多端口、多用户、直连及 SOCKS5 中转配置。当前脚本版本为 **2.0.12**。
+一个面向 VLESS + Reality 的交互式 Xray 管理脚本，用于简化多端口、多用户、直连及 SOCKS5 中转配置。当前脚本版本为 **2.0.13**。
 
 ## 主要功能
 
@@ -62,6 +62,8 @@ bash <(curl -fL https://raw.githubusercontent.com/5548269/xray-reality-manager/m
 ## 参与贡献
 
 提交问题或代码前，请阅读 [贡献指南](CONTRIBUTING.md)。版本变化记录见 [CHANGELOG.md](CHANGELOG.md)。
+
+计划中的改进记录在公开的 [项目路线图](ROADMAP.md) 中。
 
 ## 免责声明
 

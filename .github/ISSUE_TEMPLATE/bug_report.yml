@@ -1,0 +1,52 @@
+name: Bug report
+description: Report a reproducible problem in the script
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Do not include IP addresses, UUIDs, private keys, passwords, or proxy credentials.
+  - type: input
+    id: version
+    attributes:
+      label: Script version
+      placeholder: "2.0.13"
+    validations:
+      required: true
+  - type: input
+    id: operating-system
+    attributes:
+      label: Operating system
+      placeholder: "Debian 12 / Ubuntu 24.04"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the exact menu choices or commands that trigger the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and sanitized logs
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed all credentials, keys, UUIDs, and identifying server information.
+          required: true
+        - label: I searched existing Issues for the same problem.
+          required: true

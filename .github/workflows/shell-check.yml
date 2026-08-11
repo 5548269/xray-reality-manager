@@ -1,0 +1,26 @@
+name: Shell validation
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate Bash syntax
+        run: |
+          bash -n install.sh
+          bash -n install-release.sh
+
+      - name: Run ShellCheck on the project script
+        run: shellcheck --severity=error install.sh
