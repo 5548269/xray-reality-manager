@@ -1,9 +1,5 @@
 #!/bin/bash
 
-# 等待1秒, 避免curl下载脚本的打印与脚本本身的显示冲突
-sleep 1
-
-echo -e "                     _ ___                   \n ___ ___ __ __ ___ _| |  _|___ __ __   _ ___ \n|-_ |_  |  |  |-_ | _ |   |- _|  |  |_| |_  |\n|___|___|  _  |___|___|_|_|___|  _  |___|___|\n        |_____|               |_____|        "
 red='\e[91m'
 green='\e[92m'
 yellow='\e[93m'
@@ -11,8 +7,19 @@ magenta='\e[95m'
 cyan='\e[96m'
 none='\e[0m'
 
+show_banner() {
+    # 避免 curl 下载脚本的输出与脚本自身的标题混在一起
+    sleep 1
+    echo -e "                     _ ___                   \n ___ ___ __ __ ___ _| |  _|___ __ __   _ ___ \n|-_ |_  |  |  |-_ | _ |   |- _|  |  |_| |_  |\n|___|___|  _  |___|___|_|_|___|  _  |___|___|\n        |_____|               |_____|        "
+}
+
 # 脚本版本
-VERSION="2.0.13"
+VERSION="2.0.14"
+
+# 固定安装辅助脚本的来源和校验值，避免以 root 身份执行可变 main 分支内容
+INSTALL_RELEASE_REF="e741a4f56d368afbb9e5be3361b40c4552d3710d"
+INSTALL_RELEASE_SHA256="7f70c95f6b418da8b4f4883343d602964915e28748993870fd554383afdbe555"
+INSTALL_RELEASE_URL="https://raw.githubusercontent.com/XTLS/Xray-install/${INSTALL_RELEASE_REF}/install-release.sh"
 
 # 配置文件路径
 CONFIG_FILE="/usr/local/etc/xray/config.json"
@@ -49,6 +56,277 @@ log_error() {
 
 log_warn() {
     log "WARN" "$1"
+}
+
+# 在本机生成随机 UUID，避免向第三方服务泄露主机信息
+generate_uuid() {
+    local generated_uuid=""
+    local random_hex=""
+    local variant_nibble=""
+
+    if [[ -r /proc/sys/kernel/random/uuid ]]; then
+        IFS= read -r generated_uuid < /proc/sys/kernel/random/uuid
+    fi
+
+    if [[ ! "$generated_uuid" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] &&
+       command -v uuidgen &> /dev/null; then
+        generated_uuid=$(uuidgen 2>/dev/null)
+    fi
+
+    if [[ ! "$generated_uuid" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] &&
+       command -v xray &> /dev/null; then
+        generated_uuid=$(xray uuid 2>/dev/null | grep -Eio '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -n 1)
+    fi
+
+    if [[ ! "$generated_uuid" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] &&
+       [[ -r /dev/urandom ]] && command -v od &> /dev/null; then
+        random_hex=$(od -An -N16 -tx1 /dev/urandom | tr -d '[:space:]')
+        if [[ "$random_hex" =~ ^[0-9a-f]{32}$ ]]; then
+            printf -v variant_nibble '%x' "$(( (16#${random_hex:16:1} & 3) | 8 ))"
+            generated_uuid="${random_hex:0:8}-${random_hex:8:4}-4${random_hex:13:3}-${variant_nibble}${random_hex:17:3}-${random_hex:20:12}"
+        fi
+    fi
+
+    generated_uuid=$(printf '%s' "$generated_uuid" | tr '[:upper:]' '[:lower:]')
+    if [[ "$generated_uuid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+        printf '%s\n' "$generated_uuid"
+        return 0
+    fi
+
+    return 1
+}
+
+# 兼容 Xray 新旧版本的 x25519 输出；Hash32 不是客户端所需的公钥
+parse_x25519_private_key() {
+    awk -F':[[:space:]]*' '
+        {
+            label=tolower($1)
+            gsub(/[[:space:]_-]/, "", label)
+            if (label == "privatekey") {
+                print $2
+                exit
+            }
+        }
+    '
+}
+
+parse_x25519_public_key() {
+    awk -F':[[:space:]]*' '
+        {
+            label=tolower($1)
+            gsub(/[[:space:]_-]/, "", label)
+            if (label == "password" || label == "publickey") {
+                print $2
+                exit
+            }
+        }
+    '
+}
+
+# 仅让 root 和实际运行 Xray 的服务组读取含 Reality 私钥的配置
+secure_xray_config_permissions() {
+    local service_user=""
+    local service_group=""
+
+    if command -v systemctl &> /dev/null; then
+        service_user=$(systemctl show xray.service --property=User --value 2>/dev/null)
+        service_group=$(systemctl show xray.service --property=Group --value 2>/dev/null)
+    fi
+
+    if [[ -f /etc/systemd/system/xray.service ]]; then
+        if [[ -z "$service_user" ]]; then
+            service_user=$(awk -F= '
+                /^[[:space:]]*User[[:space:]]*=/ {
+                    value=$2
+                    gsub(/[[:space:]]/, "", value)
+                    user=value
+                }
+                END { print user }
+            ' /etc/systemd/system/xray.service)
+        fi
+        if [[ -z "$service_group" ]]; then
+            service_group=$(awk -F= '
+                /^[[:space:]]*Group[[:space:]]*=/ {
+                    value=$2
+                    gsub(/[[:space:]]/, "", value)
+                    group=value
+                }
+                END { print group }
+            ' /etc/systemd/system/xray.service)
+        fi
+        [[ -z "$service_user" ]] && service_user="root"
+    fi
+
+    [[ -z "$service_user" ]] && service_user="nobody"
+
+    if [[ "$service_user" == "root" ]]; then
+        chown root:root "$CONFIG_FILE" && chmod 600 "$CONFIG_FILE"
+        return $?
+    fi
+
+    if id "$service_user" &> /dev/null; then
+        [[ -z "$service_group" ]] && service_group=$(id -gn "$service_user")
+        chown root:"$service_group" "$CONFIG_FILE" && chmod 640 "$CONFIG_FILE"
+        return $?
+    fi
+
+    chmod 600 "$CONFIG_FILE"
+    log_warn "无法识别 Xray 服务账户，config.json 已限制为 root 专用"
+    return 1
+}
+
+# 下载固定版本的安装辅助脚本，校验无误后才执行
+run_install_release() {
+    local temp_file
+    local actual_sha256
+    local exit_code
+
+    temp_file=$(mktemp) || {
+        echo -e "${red}无法创建临时文件，操作已停止${none}"
+        log_error "无法创建 install-release 临时文件"
+        return 1
+    }
+
+    if ! curl -fL --retry 3 --connect-timeout 10 "$INSTALL_RELEASE_URL" -o "$temp_file"; then
+        echo -e "${red}安装辅助脚本下载失败，操作已停止${none}"
+        log_error "install-release 下载失败"
+        rm -f -- "$temp_file"
+        return 1
+    fi
+
+    actual_sha256=$(sha256sum "$temp_file" | awk '{print $1}')
+    if [[ "$actual_sha256" != "$INSTALL_RELEASE_SHA256" ]]; then
+        echo -e "${red}安装辅助脚本校验失败，拒绝执行${none}"
+        log_error "install-release SHA-256 校验失败"
+        rm -f -- "$temp_file"
+        return 1
+    fi
+
+    if bash "$temp_file" "$@"; then
+        exit_code=0
+    else
+        exit_code=$?
+    fi
+
+    rm -f -- "$temp_file"
+    return "$exit_code"
+}
+
+# 先完整下载 Geo 数据，再替换线上文件，避免失败时留下半个文件
+download_geodata_fallback() {
+    local data_dir="/usr/local/share/xray"
+    local temp_dir
+    local had_geoip=false
+    local had_geosite=false
+    local replacement_ok=true
+
+    mkdir -p -- "$data_dir" || return 1
+    temp_dir=$(mktemp -d "$data_dir/.geodata.XXXXXX") || return 1
+    chmod 700 "$temp_dir"
+
+    if ! wget --https-only --timeout=20 --tries=3 \
+        -O "$temp_dir/geoip.dat" \
+        "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat" ||
+       ! wget --https-only --timeout=20 --tries=3 \
+        -O "$temp_dir/geosite.dat" \
+        "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat" ||
+       ! wget --https-only --timeout=20 --tries=3 \
+        -O "$temp_dir/geoip.dat.sha256sum" \
+        "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat.sha256sum" ||
+       ! wget --https-only --timeout=20 --tries=3 \
+        -O "$temp_dir/geosite.dat.sha256sum" \
+        "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat.sha256sum" ||
+       [[ ! -s "$temp_dir/geoip.dat" || ! -s "$temp_dir/geosite.dat" ]] ||
+       ! (
+           cd "$temp_dir" &&
+           sha256sum -c geoip.dat.sha256sum > /dev/null 2>&1 &&
+           sha256sum -c geosite.dat.sha256sum > /dev/null 2>&1
+       ); then
+        rm -f -- "$temp_dir/geoip.dat" "$temp_dir/geosite.dat" \
+            "$temp_dir/geoip.dat.sha256sum" "$temp_dir/geosite.dat.sha256sum"
+        rmdir -- "$temp_dir" 2>/dev/null
+        return 1
+    fi
+
+    chmod 644 "$temp_dir/geoip.dat" "$temp_dir/geosite.dat"
+
+    if [[ -f "$data_dir/geoip.dat" ]]; then
+        if cp -p -- "$data_dir/geoip.dat" "$temp_dir/geoip.dat.previous"; then
+            had_geoip=true
+        else
+            replacement_ok=false
+        fi
+    fi
+    if [[ -f "$data_dir/geosite.dat" ]]; then
+        if cp -p -- "$data_dir/geosite.dat" "$temp_dir/geosite.dat.previous"; then
+            had_geosite=true
+        else
+            replacement_ok=false
+        fi
+    fi
+
+    if ! $replacement_ok; then
+        rm -f -- "$temp_dir/geoip.dat" "$temp_dir/geosite.dat" \
+            "$temp_dir/geoip.dat.previous" "$temp_dir/geosite.dat.previous" \
+            "$temp_dir/geoip.dat.sha256sum" "$temp_dir/geosite.dat.sha256sum"
+        rmdir -- "$temp_dir" 2>/dev/null
+        return 1
+    fi
+
+    if $replacement_ok; then
+        mv -f -- "$temp_dir/geoip.dat" "$data_dir/geoip.dat" || replacement_ok=false
+    fi
+    if $replacement_ok; then
+        mv -f -- "$temp_dir/geosite.dat" "$data_dir/geosite.dat" || replacement_ok=false
+    fi
+
+    if ! $replacement_ok; then
+        if $had_geoip; then
+            cp -p -- "$temp_dir/geoip.dat.previous" "$data_dir/geoip.dat"
+        else
+            rm -f -- "$data_dir/geoip.dat"
+        fi
+        if $had_geosite; then
+            cp -p -- "$temp_dir/geosite.dat.previous" "$data_dir/geosite.dat"
+        else
+            rm -f -- "$data_dir/geosite.dat"
+        fi
+        rm -f -- "$temp_dir/geoip.dat" "$temp_dir/geosite.dat" \
+            "$temp_dir/geoip.dat.previous" "$temp_dir/geosite.dat.previous" \
+            "$temp_dir/geoip.dat.sha256sum" "$temp_dir/geosite.dat.sha256sum"
+        rmdir -- "$temp_dir" 2>/dev/null
+        return 1
+    fi
+
+    rm -f -- "$temp_dir/geoip.dat.previous" "$temp_dir/geosite.dat.previous" \
+        "$temp_dir/geoip.dat.sha256sum" "$temp_dir/geosite.dat.sha256sum"
+    rmdir -- "$temp_dir"
+}
+
+# 拒绝包含路径穿越、符号链接或特殊文件的备份归档
+validate_backup_archive() {
+    local backup_file=$1
+    local entry
+
+    if ! tar -tzf "$backup_file" > /dev/null 2>&1; then
+        return 1
+    fi
+
+    while IFS= read -r entry; do
+        entry=${entry#./}
+        case "$entry" in
+            /*|..|../*|*/../*|*/..)
+                return 1
+                ;;
+        esac
+    done < <(tar -tzf "$backup_file")
+
+    if tar -tvzf "$backup_file" 2>/dev/null |
+        awk 'substr($1, 1, 1) != "-" && substr($1, 1, 1) != "d" { unsafe=1 } END { exit unsafe ? 0 : 1 }'; then
+        return 1
+    fi
+
+    return 0
 }
 
 # TCP优化函数
@@ -214,18 +492,19 @@ pause() {
 init_directories() {
     # 创建配置目录
     if [[ ! -d "$CONFIG_DIR" ]]; then
-        mkdir -p "$CONFIG_DIR"
+        mkdir -p "$CONFIG_DIR" || return 1
     fi
     
     # 初始化配置文件
     if [[ ! -f "$PORT_INFO_FILE" ]]; then
-        echo '{"ports":[]}' > "$PORT_INFO_FILE"
-        chmod 600 "$PORT_INFO_FILE"
+        printf '%s\n' '{"ports":[]}' > "$PORT_INFO_FILE" || return 1
     fi
+    chmod 600 "$PORT_INFO_FILE" || return 1
     
     # 确保日志文件存在
-    touch "$LOG_FILE"
-    chmod 600 "$LOG_FILE"
+    touch "$LOG_FILE" || return 1
+    chmod 600 "$LOG_FILE" || return 1
+    return 0
 }
 
 # 更新 Xray GeoIP 和 GeoSite 数据
@@ -235,9 +514,8 @@ update_geodata() {
     echo "----------------------------------------------------------------"
     log_info "开始更新 GeoIP 和 GeoSite 数据"
     
-    # 使用官方脚本更新
-    if bash -c "$(curl -fL https://raw.githubusercontent.com/5548269/xray-reality-manager/main/install-release.sh
-)" @ install-geodata; then
+    # 使用经过固定版本和 SHA-256 校验的官方脚本更新
+    if run_install_release install-geodata; then
         echo
         echo -e "$green 数据库更新成功! $none"
         log_info "数据库更新成功 (官方脚本)"
@@ -259,9 +537,8 @@ update_geodata() {
         echo
         echo -e "$yellow 尝试手动更新... $none"
         
-        # 手动下载更新
-        if wget -O /usr/local/share/xray/geoip.dat https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat && \
-           wget -O /usr/local/share/xray/geosite.dat https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat; then
+        # 手动下载更新；下载完成后再替换现有文件
+        if download_geodata_fallback; then
             echo -e "$green 数据库手动更新成功! $none"
             log_info "数据库手动更新成功"
             
@@ -599,8 +876,13 @@ EOL
     done
     
     # 应用新配置
-    cp "$temp_config" "$CONFIG_FILE"
-    chmod 644 "$CONFIG_FILE"
+    if ! cp "$temp_config" "$CONFIG_FILE" ||
+       ! secure_xray_config_permissions; then
+        rm -f "$temp_config" "$temp_config.inbound" "$temp_config.socks5" \
+            "$temp_config.rule" "$temp_config.new" 2>/dev/null
+        log_error "配置文件复制或权限设置失败"
+        return 1
+    fi
     
     # 清理临时文件
     rm -f "$temp_config" "$temp_config.inbound" "$temp_config.socks5" "$temp_config.rule" "$temp_config.new" 2>/dev/null
@@ -691,35 +973,77 @@ backup_configuration() {
     echo "----------------------------------------------------------------"
     
     local backup_dir="$HOME/xray_backup_$(date +%Y%m%d%H%M%S)"
-    mkdir -p "$backup_dir"
-    
-    # 备份端口配置信息
-    if [[ -f "$PORT_INFO_FILE" ]]; then
-        cp "$PORT_INFO_FILE" "$backup_dir/"
+    local backup_file="${backup_dir}.tar.gz"
+    local previous_umask
+    local copy_failed=false
+    previous_umask=$(umask)
+    umask 077
+
+    if ! mkdir -m 700 -- "$backup_dir"; then
+        umask "$previous_umask"
+        echo -e "${red}无法创建安全的备份目录${none}"
+        log_error "创建备份目录失败"
+        return 1
     fi
     
-    # 备份Xray配置
-    if [[ -f "$CONFIG_FILE" ]]; then
-        cp "$CONFIG_FILE" "$backup_dir/"
+    # 备份端口配置信息
+    if [[ -f "$PORT_INFO_FILE" ]] &&
+       ! cp "$PORT_INFO_FILE" "$backup_dir/"; then
+        copy_failed=true
+    fi
+    
+    # 备份 Xray 配置目录（包括隐藏文件）
+    if [[ -d "$CONFIG_DIR" ]] &&
+       ! cp -a "$CONFIG_DIR/." "$backup_dir/"; then
+        copy_failed=true
     fi
 
     # 备份HAProxy配置
-    if [[ -f "$HAPROXY_CONFIG" ]]; then
-        cp "$HAPROXY_CONFIG" "$backup_dir/"
+    if [[ -f "$HAPROXY_CONFIG" ]] &&
+       ! cp "$HAPROXY_CONFIG" "$backup_dir/"; then
+        copy_failed=true
+    fi
+
+    if $copy_failed; then
+        rm -rf -- "$backup_dir"
+        umask "$previous_umask"
+        echo -e "${red}读取配置文件失败，未创建不完整备份${none}"
+        log_error "备份配置文件复制失败"
+        return 1
+    fi
+
+    if [[ -z "$(find "$backup_dir" -mindepth 1 -print -quit)" ]]; then
+        rmdir -- "$backup_dir"
+        umask "$previous_umask"
+        echo -e "${yellow}没有找到可备份的配置文件${none}"
+        return 1
     fi
     
-    # 备份其他配置文件
-    cp -r /usr/local/etc/xray/* "$backup_dir/" 2>/dev/null
-    
-    echo -e "${green}配置已备份至: $backup_dir${none}"
-    log_info "备份配置到 $backup_dir"
-    
-    # 创建一个压缩包
-    tar -czf "${backup_dir}.tar.gz" -C "$(dirname "$backup_dir")" "$(basename "$backup_dir")"
-    rm -rf "$backup_dir"
-    
-    echo -e "${green}备份文件: ${backup_dir}.tar.gz${none}"
-    echo -e "使用以下命令恢复: tar -xzf ${backup_dir}.tar.gz -C /"
+    # 创建只允许当前用户读取的压缩包
+    if ! tar -czf "$backup_file" -C "$(dirname "$backup_dir")" "$(basename "$backup_dir")"; then
+        rm -rf -- "$backup_dir"
+        umask "$previous_umask"
+        echo -e "${red}创建备份压缩包失败${none}"
+        log_error "创建备份压缩包失败"
+        return 1
+    fi
+
+    if ! validate_backup_archive "$backup_file" ||
+       ! chmod 600 "$backup_file"; then
+        rm -f -- "$backup_file"
+        rm -rf -- "$backup_dir"
+        umask "$previous_umask"
+        echo -e "${red}备份归档安全校验失败，文件已删除${none}"
+        log_error "备份归档安全校验失败"
+        return 1
+    fi
+
+    rm -rf -- "$backup_dir"
+    umask "$previous_umask"
+
+    echo -e "${green}备份文件: $backup_file${none}"
+    echo -e "可在脚本的“备份与恢复”菜单中选择该文件进行恢复。"
+    log_info "备份配置到 $backup_file"
     
     pause
 }
@@ -727,6 +1051,14 @@ backup_configuration() {
 
 # 恢复配置
 restore_configuration() {
+    local backup_file
+    local confirm
+    local temp_root
+    local temp_dir
+    local archive_copy
+    local restored_any=false
+    local restore_failed=false
+
     echo
     echo -e "$yellow 恢复配置 $none"
     echo "----------------------------------------------------------------"
@@ -738,7 +1070,7 @@ restore_configuration() {
         echo -e "${red}备份文件不存在${none}"
         return
     fi
-    
+
     echo -e "${yellow}警告: 恢复将覆盖当前配置，是否继续?${none}"
     read -p "$(echo -e "(y/n, 默认: ${cyan}n${none}): ")" confirm
     
@@ -747,14 +1079,36 @@ restore_configuration() {
         return
     fi
     
-    # 创建临时目录
-    local temp_dir=$(mktemp -d)
+    # 先复制到 root 专用目录，再校验和解压同一份快照，避免源文件被替换
+    temp_root=$(mktemp -d) || {
+        echo -e "${red}无法创建恢复临时目录${none}"
+        return 1
+    }
+    chmod 700 "$temp_root"
+    temp_dir="$temp_root/extracted"
+    archive_copy="$temp_root/backup.tar.gz"
+    mkdir -m 700 -- "$temp_dir"
+
+    if ! cp -- "$backup_file" "$archive_copy"; then
+        echo -e "${red}无法锁定备份文件副本，恢复已停止${none}"
+        rm -rf -- "$temp_root"
+        return 1
+    fi
+    chmod 600 "$archive_copy"
+
+    if ! validate_backup_archive "$archive_copy"; then
+        echo -e "${red}备份文件校验失败：归档损坏或包含不安全路径/链接${none}"
+        log_error "拒绝恢复不安全的备份归档"
+        rm -rf -- "$temp_root"
+        return 1
+    fi
+
     echo -e "${yellow}解压备份文件到: $temp_dir${none}"
     
     # 解压备份文件
-    if ! tar -xzf "$backup_file" -C "$temp_dir"; then
+    if ! tar --no-same-owner --no-same-permissions -xzf "$archive_copy" -C "$temp_dir"; then
         echo -e "${red}解压备份文件失败${none}"
-        rm -rf "$temp_dir"
+        rm -rf -- "$temp_root"
         return 1
     fi
     
@@ -763,9 +1117,41 @@ restore_configuration() {
     find "$temp_dir" -type f | sort
     
     # 查找配置文件 - 不限定在哪个目录下
-    local port_info_file=$(find "$temp_dir" -name ".xray_port_info.json" | head -n 1)
-    local xray_config_file=$(find "$temp_dir" -name "config.json" | head -n 1)
-    local haproxy_config_file=$(find "$temp_dir" -name "haproxy.cfg" | head -n 1)
+    local port_info_file
+    local xray_config_file
+    local haproxy_config_file
+    port_info_file=$(find "$temp_dir" -type f -name ".xray_port_info.json" | head -n 1)
+    xray_config_file=$(find "$temp_dir" -type f -name "config.json" | head -n 1)
+    haproxy_config_file=$(find "$temp_dir" -type f -name "haproxy.cfg" | head -n 1)
+
+    # 在覆盖线上配置前进行无破坏性验证
+    if [[ -n "$port_info_file" ]] &&
+       ! jq -e '(.ports | type) == "array"' "$port_info_file" > /dev/null 2>&1; then
+        echo -e "${red}端口信息文件不是有效的项目配置，已跳过${none}"
+        port_info_file=""
+        restore_failed=true
+    fi
+
+    if [[ -n "$xray_config_file" ]]; then
+        if ! jq empty "$xray_config_file" > /dev/null 2>&1; then
+            echo -e "${red}Xray 配置不是有效 JSON，已跳过${none}"
+            xray_config_file=""
+            restore_failed=true
+        elif command -v xray &> /dev/null &&
+             ! xray run -test -config "$xray_config_file" > /dev/null 2>&1; then
+            echo -e "${red}Xray 配置测试失败，已跳过${none}"
+            xray_config_file=""
+            restore_failed=true
+        fi
+    fi
+
+    if [[ -n "$haproxy_config_file" ]] &&
+       command -v haproxy &> /dev/null &&
+       ! haproxy -c -f "$haproxy_config_file" > /dev/null 2>&1; then
+        echo -e "${red}HAProxy 配置测试失败，已跳过${none}"
+        haproxy_config_file=""
+        restore_failed=true
+    fi
     
     echo -e "${yellow}找到的配置文件:${none}"
     echo "端口信息文件: ${port_info_file:-未找到}"
@@ -775,9 +1161,16 @@ restore_configuration() {
     # 恢复端口配置信息
     if [[ -n "$port_info_file" && -f "$port_info_file" ]]; then
         echo -e "${yellow}恢复端口配置信息...${none}"
-        cp "$port_info_file" "$PORT_INFO_FILE"
-        chmod 600 "$PORT_INFO_FILE"
-        echo -e "${green}端口配置信息恢复成功${none}"
+        if cp "$port_info_file" "$PORT_INFO_FILE" &&
+           chmod 600 "$PORT_INFO_FILE"; then
+            echo -e "${green}端口配置信息恢复成功${none}"
+            restored_any=true
+        else
+            echo -e "${red}端口配置信息恢复失败${none}"
+            log_error "恢复端口配置信息失败"
+            port_info_file=""
+            restore_failed=true
+        fi
     else
         echo -e "${red}未找到端口配置信息文件${none}"
     fi
@@ -786,9 +1179,16 @@ restore_configuration() {
     if [[ -n "$xray_config_file" && -f "$xray_config_file" ]]; then
         echo -e "${yellow}恢复Xray配置...${none}"
         mkdir -p "/usr/local/etc/xray"
-        cp "$xray_config_file" "$CONFIG_FILE"
-        chmod 644 "$CONFIG_FILE"
-        echo -e "${green}Xray配置恢复成功${none}"
+        if cp "$xray_config_file" "$CONFIG_FILE" &&
+           secure_xray_config_permissions; then
+            echo -e "${green}Xray配置恢复成功${none}"
+            restored_any=true
+        else
+            echo -e "${red}Xray配置复制或权限设置失败${none}"
+            log_error "恢复 Xray 配置失败"
+            xray_config_file=""
+            restore_failed=true
+        fi
     else
         echo -e "${red}未找到Xray配置文件${none}"
     fi
@@ -797,9 +1197,16 @@ restore_configuration() {
     if [[ -n "$haproxy_config_file" && -f "$haproxy_config_file" ]]; then
         echo -e "${yellow}恢复HAProxy配置...${none}"
         mkdir -p "/etc/haproxy"
-        cp "$haproxy_config_file" "$HAPROXY_CONFIG"
-        chmod 644 "$HAPROXY_CONFIG"
-        echo -e "${green}HAProxy配置恢复成功${none}"
+        if cp "$haproxy_config_file" "$HAPROXY_CONFIG" &&
+           chmod 644 "$HAPROXY_CONFIG"; then
+            echo -e "${green}HAProxy配置恢复成功${none}"
+            restored_any=true
+        else
+            echo -e "${red}HAProxy配置恢复失败${none}"
+            log_error "恢复 HAProxy 配置失败"
+            haproxy_config_file=""
+            restore_failed=true
+        fi
     else
         echo -e "${red}未找到HAProxy配置文件${none}"
     fi
@@ -813,6 +1220,7 @@ restore_configuration() {
         else
             echo -e "$red HAProxy 服务重启失败，请手动检查! $none"
             log_error "恢复配置后重启HAProxy失败"
+            restore_failed=true
         fi
     fi
     
@@ -825,15 +1233,29 @@ restore_configuration() {
         else
             echo -e "$red Xray 服务重启失败，请手动检查! $none"
             log_error "恢复配置后重启Xray失败"
+            restore_failed=true
         fi
     fi
     
     # 删除临时目录
-    rm -rf "$temp_dir"
+    rm -rf -- "$temp_root"
     
+    if ! $restored_any; then
+        echo -e "${red}没有恢复任何有效配置${none}"
+        log_error "恢复结束，但没有恢复任何有效配置"
+        pause
+        return 1
+    fi
+
+    if $restore_failed; then
+        echo -e "${yellow}配置已部分恢复，但存在失败项，请检查上方信息${none}"
+        log_warn "配置部分恢复"
+        pause
+        return 1
+    fi
+
     echo -e "${green}配置恢复过程完成${none}"
     log_info "配置恢复过程完成"
-    
     pause
 }
 
@@ -988,9 +1410,13 @@ add_port_configuration() {
         break
     done
     
-    # 生成UUID
-    uuidSeed=${ip}$(cat /proc/sys/kernel/hostname)$(cat /etc/timezone)${port}$(date +%s%N)
-    default_uuid=$(curl -sL https://www.uuidtools.com/api/generate/v3/namespace/ns:dns/name/${uuidSeed} | grep -oP '[^-]{8}-[^-]{4}-[^-]{4}-[^-]{4}-[^-]{12}')
+    # 在本机生成随机 UUID
+    local default_uuid
+    if ! default_uuid=$(generate_uuid); then
+        echo -e "${red}无法在本机生成 UUID，操作已停止${none}"
+        log_error "本机 UUID 生成失败"
+        return 1
+    fi
     
     while :; do
         echo -e "请输入 "${yellow}"UUID"${none}" "
@@ -1015,20 +1441,20 @@ key_pair_output=$(xray x25519)
 
 # 从输出中提取默认的私钥和公钥
 local default_private_key
-default_private_key=$(echo "$key_pair_output" | awk -F':[[:space:]]*' 'tolower($1) ~ /private[[:space:]]*key/ {print $2; exit}')
+default_private_key=$(printf '%s\n' "$key_pair_output" | parse_x25519_private_key)
 local default_public_key
-default_public_key=$(echo "$key_pair_output" | awk -F':[[:space:]]*' 'tolower($1) ~ /public[[:space:]]*key/ {print $2; exit}')
+default_public_key=$(printf '%s\n' "$key_pair_output" | parse_x25519_public_key)
 
 # 检查密钥是否成功生成
 if [[ -z "$default_private_key" || -z "$default_public_key" ]]; then
-    echo -e "${red}错误: 自动生成密钥失败! xray x25519 输出如下:${none}"
-    echo "$key_pair_output"
-    log_error "自动生成密钥失败: $key_pair_output"
+    echo -e "${red}错误: 自动生成密钥失败，请确认 Xray 安装正常${none}"
+    log_error "自动生成 Reality 密钥失败"
     return 1
 fi
 
 echo -e "请输入 "$yellow"x25519 Private Key"$none" x25519私钥 :"
-read -p "$(echo -e "(留空使用默认生成的私钥): ")" private_key
+read -rsp "$(echo -e "(留空使用默认生成的私钥，输入内容不会回显): ")" private_key
+echo
 
 local public_key
 if [[ -z "$private_key" ]]; then
@@ -1038,7 +1464,7 @@ if [[ -z "$private_key" ]]; then
 else
     # 用户输入了自定义私钥，我们需要为其计算公钥
     echo -e "${yellow}正在为您输入的私钥计算对应的公钥...${none}"
-    public_key=$(xray x25519 -i "$private_key" 2>&1 | awk -F':[[:space:]]*' 'tolower($1) ~ /public[[:space:]]*key/ {print $2; exit}')
+    public_key=$(xray x25519 -i "$private_key" 2>/dev/null | parse_x25519_public_key)
     if [[ -z "$public_key" ]]; then
        echo -e "${red}无法从您输入的私钥派生出公钥，请检查私钥是否正确。${none}"
        log_error "无法从用户输入的私钥派生公钥"
@@ -1047,7 +1473,7 @@ else
 fi
 
 echo
-echo -e "$yellow 私钥 (PrivateKey) = ${cyan}${private_key}${none}"
+echo -e "$yellow 私钥 (PrivateKey) = ${green}已安全写入配置，终端不显示${none}"
 echo -e "$yellow 公钥 (PublicKey) = ${cyan}${public_key}${none}"
 echo "----------------------------------------------------------------"
 
@@ -1789,10 +2215,13 @@ modify_port_uuid() {
     echo "----------------------------------------------------------------"
     echo -e "当前UUID: $cyan$old_uuid$none"
     
-    # 生成新的默认UUID
-    local ip=$([ "$netstack" = "6" ] && echo "$IPv6" || echo "$IPv4")
-    local uuidSeed=${ip}$(cat /proc/sys/kernel/hostname)$(cat /etc/timezone)
-    local default_uuid=$(curl -sL https://www.uuidtools.com/api/generate/v3/namespace/ns:dns/name/${uuidSeed} | grep -oP '[^-]{8}-[^-]{4}-[^-]{4}-[^-]{4}-[^-]{12}')
+    # 在本机生成新的随机 UUID
+    local default_uuid
+    if ! default_uuid=$(generate_uuid); then
+        echo -e "${red}无法在本机生成 UUID，操作已停止${none}"
+        log_error "本机 UUID 生成失败"
+        return 1
+    fi
     
     while :; do
         echo -e "请输入新的UUID"
@@ -1804,34 +2233,30 @@ modify_port_uuid() {
             continue
         fi
         
-        # 生成新的密钥
-        local seed=$(echo -n ${new_uuid} | md5sum | head -c 32 | base64 -w 0 | tr '+/' '-_' | tr -d '=')
-        local tmp_key=$(echo -n ${seed} | xargs xray x25519 -i 2>&1)
-        local new_private_key=$(echo "$tmp_key" | awk -F':[[:space:]]*' 'tolower($1) ~ /^private[[:space:]]*key$/ {print $2; exit}')
-        local new_public_key=$(echo "$tmp_key" | awk -F':[[:space:]]*' 'tolower($1) ~ /^public[[:space:]]*key$/ {print $2; exit}')
+        # 独立生成随机 Reality 密钥，禁止从可公开的 UUID 推导私钥
+        local tmp_key
+        local new_private_key
+        local new_public_key
+        tmp_key=$(xray x25519 2>/dev/null)
+        new_private_key=$(printf '%s\n' "$tmp_key" | parse_x25519_private_key)
+        new_public_key=$(printf '%s\n' "$tmp_key" | parse_x25519_public_key)
 
-        # 获取旧密钥对
-        local old_private_key=$(echo "$port_info" | jq -r '.private_key')
-        local old_public_key=$(echo "$port_info" | jq -r '.public_key')
+        if [[ -z "$new_private_key" || -z "$new_public_key" ]]; then
+            echo -e "${red}生成新的 Reality 密钥失败，配置未修改${none}"
+            log_error "修改 UUID 时生成 Reality 密钥失败"
+            return 1
+        fi
 
+        # 生成新的ShortID
+        local new_shortid
+        new_shortid=$(printf '%s' "$new_uuid" | sha1sum | head -c 16)
+        
         echo
         echo -e "$yellow 旧UUID = ${cyan}$old_uuid${none}"
-        echo -e "$yellow 旧私钥 = ${cyan}$old_private_key${none}"
-        echo -e "$yellow 旧公钥 = ${cyan}$old_public_key${none}"
-        echo
         echo -e "$yellow 新UUID = ${cyan}$new_uuid${none}"
-        echo -e "$yellow 新私钥 = ${cyan}$new_private_key${none}"
-        echo -e "$yellow 新公钥 = ${cyan}$new_public_key${none}"
-        echo
-        
-        # 生成新的ShortID
-        local new_shortid=$(echo -n ${new_uuid} | sha1sum | head -c 16)
-        
-        echo
-        echo -e "$yellow 新UUID = ${cyan}$new_uuid${none}"
-        echo -e "$yellow 新私钥 = ${cyan}$new_private_key${none}"
         echo -e "$yellow 新公钥 = ${cyan}$new_public_key${none}"
         echo -e "$yellow 新ShortID = ${cyan}$new_shortid${none}"
+        echo -e "$yellow 新私钥 = ${green}已安全写入配置，终端不显示${none}"
         echo
         
         # 保存修改
@@ -2461,9 +2886,8 @@ uninstall_xray() {
     # 卸载 Xray
     echo -e "$yellow 正在卸载 Xray... $none"
     
-    # 使用官方脚本卸载
-    if bash -c "$(curl -fL https://raw.githubusercontent.com/5548269/xray-reality-manager/main/install-release.sh
-)" @ remove --purge; then
+    # 使用经过固定版本和 SHA-256 校验的官方脚本卸载
+    if run_install_release remove --purge; then
         echo -e "$green Xray 卸载成功! $none"
     else
         echo -e "$red Xray 卸载失败! 请检查错误信息 $none"
@@ -2677,7 +3101,7 @@ show_help() {
     echo -e "  ${green}0.${none} 退出: 退出脚本。"
     echo "----------------------------------------------------------------"
     echo -e "当前版本: ${cyan}$VERSION${none}"
-    echo -e "Bug 反馈: ${cyan}https://github.com/your-username/xray-multi-port/issues${none}"
+    echo -e "Bug 反馈: ${cyan}https://github.com/5548269/xray-reality-manager/issues${none}"
     echo "----------------------------------------------------------------"
     
     pause
@@ -2845,13 +3269,15 @@ generate_haproxy_config_direct() {
                 local uuid=$(echo "$inbound" | jq -r '.settings.clients[0].id')
                 local private_key=$(echo "$inbound" | jq -r '.streamSettings.realitySettings.privateKey')
                 
-                # 生成公钥（尝试使用xray命令）
-                local tmp_key=$(echo -n ${private_key} | xargs xray x25519 -i 2>/dev/null || echo "Failed")
+                # 从私钥派生客户端所需的公钥，兼容新旧 Xray 输出格式
+                local tmp_key
                 local public_key
-                if [[ "$tmp_key" == "Failed" ]]; then
-                    public_key="auto_generated_public_key"
-                else
-                    public_key=$(echo ${tmp_key} | awk '{print $6}')
+                tmp_key=$(xray x25519 -i "$private_key" 2>/dev/null)
+                public_key=$(printf '%s\n' "$tmp_key" | parse_x25519_public_key)
+                if [[ -z "$public_key" ]]; then
+                    echo -e "${red}端口 $port 的 Reality 公钥派生失败，已跳过该配置${none}"
+                    log_error "端口 $port 的 Reality 公钥派生失败"
+                    continue
                 fi
                 
                 local shortid=$(echo "$inbound" | jq -r '.streamSettings.realitySettings.shortIds[0]')
@@ -3097,8 +3523,11 @@ install_xray() {
     echo
     echo -e "${yellow}Xray官方脚本安装最新版本$none"
     echo "----------------------------------------------------------------"
-    bash -c "$(curl -fL https://raw.githubusercontent.com/5548269/xray-reality-manager/main/install-release.sh
-)" @ install
+    if ! run_install_release install; then
+        echo -e "${red}Xray 安装脚本执行失败，请检查网络连接和日志${none}"
+        log_error "Xray 安装辅助脚本执行失败"
+        return 1
+    fi
     
     # 检查安装结果
     if ! command -v xray &> /dev/null; then
@@ -3244,22 +3673,37 @@ show_menu() {
     exit 0
 }
 
-# 检查是否以root权限运行
-check_root
+main() {
+    show_banner
 
-# 初始化必要的目录和文件
-init_directories
+    # 检查是否以root权限运行
+    check_root
 
-# 检查依赖
-check_dependencies
+    # 初始化必要的目录和文件
+    if ! init_directories; then
+        echo -e "${red}初始化配置目录失败${none}"
+        return 1
+    fi
 
-# 记录脚本启动信息
-log_info "脚本启动，版本 $VERSION"
+    # 检查依赖
+    if ! check_dependencies; then
+        echo -e "${red}依赖检查或安装失败${none}"
+        return 1
+    fi
 
-# 如果没有带参数运行，显示菜单
-if [ $# -eq 0 ]; then
-    show_menu
-else
-    # 如果带参数运行，直接安装
-    install_xray "$@"
+    # 记录脚本启动信息
+    log_info "脚本启动，版本 $VERSION"
+
+    # 如果没有带参数运行，显示菜单
+    if [[ $# -eq 0 ]]; then
+        show_menu
+    else
+        # 如果带参数运行，直接安装
+        install_xray "$@"
+    fi
+}
+
+# 仅直接执行脚本时进入主流程；被测试脚本引用时只加载函数
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
 fi
