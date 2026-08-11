@@ -8,7 +8,7 @@
 
 一个面向 Xray VLESS + Reality 部署的交互式 Bash 管理工具。它把多端口、多用户、SOCKS5
 中转、HAProxy、备份和恢复等操作整理成适合 Linux 服务器管理员使用的引导流程。
-当前稳定版本为 **v2.0.15**。
+当前稳定版本为 **v2.0.16**。
 
 ## 为什么维护这个项目
 
@@ -48,6 +48,12 @@
 [Issue #1](https://github.com/5548269/xray-reality-manager/issues/1)。
 在每个环境完成验证前，建议优先使用全新服务器或测试环境。
 
+### 已验证环境
+
+| 系统 | 架构 | Xray | 已验证流程 |
+| --- | --- | --- | --- |
+| Ubuntu 22.04.5 LTS | ARM64 | 26.3.27 | 全新安装、依赖安装、Reality 端口创建、Geo 数据更新、服务与配置校验，以及 VLESS 链接导入客户端 |
+
 ## 安装与使用
 
 ### 使用已校验的正式版本（推荐）
@@ -55,7 +61,7 @@
 下载正式版本脚本及其公开校验值：
 
 ```bash
-VERSION=v2.0.15
+VERSION=v2.0.16
 curl -fLO "https://github.com/5548269/xray-reality-manager/releases/download/${VERSION}/install.sh"
 curl -fLO "https://github.com/5548269/xray-reality-manager/releases/download/${VERSION}/SHA256SUMS"
 grep '  install.sh$' SHA256SUMS | sha256sum -c -

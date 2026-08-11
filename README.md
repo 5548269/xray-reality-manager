@@ -9,7 +9,7 @@
 An interactive Bash manager for Xray VLESS + Reality deployments. It turns
 multi-port, multi-user, SOCKS5 relay, HAProxy, backup, and recovery tasks into
 a guided workflow for Linux server administrators. The current stable release
-is **v2.0.15**.
+is **v2.0.16**.
 
 ## Why this project
 
@@ -52,6 +52,12 @@ Cross-version installation testing is tracked in
 Until each environment is verified, use a fresh server or test environment
 whenever possible.
 
+### Verified environment
+
+| System | Architecture | Xray | Verified flows |
+| --- | --- | --- | --- |
+| Ubuntu 22.04.5 LTS | ARM64 | 26.3.27 | Fresh installation, dependency setup, Reality port creation, Geo data update, service/config validation, and VLESS link import in a client |
+
 ## Installation
 
 ### Verified release (recommended)
@@ -59,7 +65,7 @@ whenever possible.
 Download the release script and its published checksum:
 
 ```bash
-VERSION=v2.0.15
+VERSION=v2.0.16
 curl -fLO "https://github.com/5548269/xray-reality-manager/releases/download/${VERSION}/install.sh"
 curl -fLO "https://github.com/5548269/xray-reality-manager/releases/download/${VERSION}/SHA256SUMS"
 grep '  install.sh$' SHA256SUMS | sha256sum -c -

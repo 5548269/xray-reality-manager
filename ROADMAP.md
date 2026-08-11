@@ -9,9 +9,11 @@ This roadmap describes intended work, not guaranteed delivery dates. Priorities 
 - Test installation and core menu flows on supported Debian and Ubuntu versions ([#1](https://github.com/5548269/xray-reality-manager/issues/1)).
 - Add a non-destructive configuration validation mode ([#3](https://github.com/5548269/xray-reality-manager/issues/3)).
 - Expand backup integrity checks and recovery documentation ([#4](https://github.com/5548269/xray-reality-manager/issues/4)).
+- Evaluate migration from the upstream `nobody` service identity to a dedicated Xray account ([#7](https://github.com/5548269/xray-reality-manager/issues/7)).
 - 在支持的 Debian、Ubuntu 版本上测试安装及核心菜单流程（[#1](https://github.com/5548269/xray-reality-manager/issues/1)）。
 - 增加无破坏性的配置校验模式（[#3](https://github.com/5548269/xray-reality-manager/issues/3)）。
 - 完善备份完整性检查及恢复文档（[#4](https://github.com/5548269/xray-reality-manager/issues/4)）。
+- 评估将上游 `nobody` 服务身份迁移到专用 Xray 账户（[#7](https://github.com/5548269/xray-reality-manager/issues/7)）。
 
 ## Later / 后续计划
 
