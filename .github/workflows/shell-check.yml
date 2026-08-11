@@ -10,17 +10,28 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: shell-validation-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Validate Bash syntax
         run: |
           bash -n install.sh
           bash -n install-release.sh
+          bash -n tests/security_helpers_test.sh
 
-      - name: Run ShellCheck on the project script
-        run: shellcheck --severity=error install.sh
+      - name: Run ShellCheck on maintained scripts
+        run: shellcheck --severity=error install.sh tests/security_helpers_test.sh
+
+      - name: Run security regression tests
+        run: bash tests/security_helpers_test.sh

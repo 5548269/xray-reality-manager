@@ -23,14 +23,22 @@
    ```bash
    bash -n install.sh
    bash -n install-release.sh
+   bash -n tests/security_helpers_test.sh
    ```
 
 4. 如已安装 ShellCheck，请同时运行：
 
    ```bash
-   shellcheck install.sh install-release.sh
+   shellcheck --severity=error install.sh tests/security_helpers_test.sh
+   bash tests/security_helpers_test.sh
    ```
 
-5. 在 Pull Request 中说明修改目的、测试环境和验证结果。
+   `install-release.sh` 保持与上游一致，因此只对它执行语法检查；其来源和同步步骤见
+   [docs/UPSTREAM.md](docs/UPSTREAM.md)。
 
-涉及上游 `install-release.sh` 的变更时，请说明对应的 [XTLS/Xray-install](https://github.com/XTLS/Xray-install) 版本或提交。
+5. 在 Pull Request 中说明修改目的、测试环境、风险、回滚方法和验证结果。
+
+涉及上游 `install-release.sh` 的变更时，请按照
+[上游同步流程](docs/UPSTREAM.md)记录对应的提交和校验值。
+
+正式发布流程记录在 [docs/RELEASING.md](docs/RELEASING.md)。

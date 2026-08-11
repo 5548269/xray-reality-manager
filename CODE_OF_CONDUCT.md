@@ -12,9 +12,15 @@ Unacceptable behavior includes harassment, personal attacks, discrimination, thr
 
 ## Enforcement / 执行
 
-Report unacceptable behavior privately through the repository's [security reporting channel](SECURITY.md). Maintainers may edit or remove contributions that violate these standards and may temporarily or permanently restrict participation when necessary.
+Do not publish sensitive conduct reports in an Issue. Use GitHub's
+[reporting abuse or spam workflow](https://docs.github.com/en/site-policy/acceptable-use-policies/github-abuse-reporting-procedures)
+on the relevant content. Maintainers may edit or remove contributions that
+violate these standards and may temporarily or permanently restrict
+participation when necessary.
 
-如需报告不当行为，请通过仓库的[安全报告渠道](SECURITY.md)私下联系维护者。维护者可以编辑或删除违反本准则的内容，并在必要时暂时或永久限制相关人员参与项目。
+请勿在 Issue 中公开敏感的不当行为报告。请在相关内容上使用 GitHub 的
+[滥用或垃圾内容举报流程](https://docs.github.com/zh/site-policy/acceptable-use-policies/github-abuse-reporting-procedures)。
+维护者可以编辑或删除违反本准则的内容，并在必要时暂时或永久限制相关人员参与项目。
 
 Enforcement decisions will be made in good faith, with attention to context, impact, and the safety of the community.
 
